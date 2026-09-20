@@ -1,0 +1,1316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TrackGuard AI — Catch Track Defects Before They Become Derailments</title>
+<meta name="description" content="Computer-vision platform that scans railway track imagery and flags cracks, fractures, and surface defects before they cause failures.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root {
+    --graphite: #0A0E14;
+    --panel: #131A24;
+    --panel-alt: #0F151E;
+    --panel-line: #232D3A;
+    --signal: #E6402A;
+    --steelblue: #4C8FC0;
+    --steel: #93A2AF;
+    --board: #EDEDE5;
+  }
+  html { scroll-behavior: smooth; }
+  body { background: var(--graphite); color: var(--board); font-family: 'Inter', sans-serif; }
+  .font-head { font-family: 'Oswald', sans-serif; }
+  .nav-link { transition: color 0.2s ease; }
+  .nav-link:hover { color: var(--steelblue); }
+  .btn-primary { background: var(--signal); transition: filter 0.2s ease, transform 0.2s ease; }
+  .btn-primary:hover { filter: brightness(1.12); transform: translateY(-1px); }
+  .btn-secondary { border: 1px solid var(--panel-line); transition: border-color 0.2s ease, color 0.2s ease; }
+  .btn-secondary:hover { border-color: var(--steelblue); color: var(--steelblue); }
+  .card { background: var(--panel); border: 1px solid var(--panel-line); transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease; }
+  .card:hover { transform: translateY(-4px); box-shadow: 0 14px 30px rgba(0,0,0,0.35); border-color: var(--steelblue); }
+  .pricing-card { transition: transform 0.25s ease, box-shadow 0.25s ease; }
+  .pricing-card:hover { transform: translateY(-6px); }
+  .pricing-featured { border: 1px solid var(--signal); box-shadow: 0 0 0 1px var(--signal), 0 20px 40px rgba(230,64,42,0.15); }
+  .faq-toggle svg { transition: transform 0.25s ease; }
+  .faq-item.open .faq-toggle svg { transform: rotate(45deg); }
+  .faq-answer { max-height: 0; overflow: hidden; transition: max-height 0.35s ease; }
+  .faq-item.open .faq-answer { max-height: 300px; }
+  .logo-dim { filter: grayscale(1); opacity: 0.5; transition: opacity 0.2s ease, filter 0.2s ease; }
+  .logo-dim:hover { opacity: 0.9; filter: grayscale(0.4); }
+
+  /* Trust bar marquee */
+  .marquee-viewport { overflow: hidden; -webkit-mask-image: linear-gradient(90deg, transparent, black 8%, black 92%, transparent); mask-image: linear-gradient(90deg, transparent, black 8%, black 92%, transparent); }
+  .marquee-track { display: flex; width: max-content; animation: marquee-scroll 28s linear infinite; }
+  .marquee-track:hover { animation-play-state: paused; }
+  .marquee-group { display: flex; align-items: center; gap: 4rem; padding: 0 2rem 1.5rem; flex-shrink: 0; }
+  @keyframes marquee-scroll {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .marquee-track { animation: none; }
+  }
+</style>
+</head>
+<body class="antialiased">
+
+<!-- ============ 1. NAVIGATION BAR ============ -->
+<header class="sticky top-0 z-40 bg-[var(--graphite)]/90 backdrop-blur border-b border-[var(--panel-line)]">
+  <nav class="max-w-7xl mx-auto flex items-center justify-between px-6 py-4">
+    <a href="#" class="flex items-center gap-2 font-head text-xl font-semibold">
+      <span class="w-2.5 h-2.5 rounded-full bg-[var(--signal)]"></span>
+      TRACKGUARD <span class="text-[var(--signal)]">AI</span>
+    </a>
+
+    <ul class="hidden md:flex items-center gap-8 text-sm font-medium text-[var(--steel)]">
+      <li><a href="#features" class="nav-link">Features</a></li>
+      <li><a href="#proof" class="nav-link">Trusted By</a></li>
+      <li><a href="#testimonials" class="nav-link">Reviews</a></li>
+      <li><a href="#pricing" class="nav-link">Pricing</a></li>
+      <li><a href="#faq" class="nav-link">FAQ</a></li>
+      <li><a href="#platform-demo" class="nav-link">Live Demo</a></li>
+    </ul>
+
+    <div class="flex items-center gap-3">
+      <!-- Sign In trigger (signed-out state) -->
+      <button data-open-signin id="signInBtn" class="hidden sm:inline-block text-sm font-medium text-[var(--steel)] nav-link">
+        Sign In
+      </button>
+      <!-- Signed-in state (hidden by default) -->
+      <div id="userChip" class="hidden sm:flex items-center gap-2">
+        <div class="w-8 h-8 rounded-full bg-[var(--steelblue)]/20 flex items-center justify-center font-head text-xs font-semibold text-[var(--steelblue)]" id="userInitial"></div>
+        <button id="signOutBtn" class="text-xs text-[var(--steel)] hover:text-[var(--board)] transition-colors">Sign out</button>
+      </div>
+      <button data-open-demo class="hidden sm:inline-block btn-primary text-white text-sm font-semibold px-5 py-2.5 rounded-lg">
+        Book a Pilot Demo
+      </button>
+      <button id="mobileMenuBtn" class="md:hidden text-[var(--board)]" aria-label="Open menu">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Mobile menu panel -->
+  <div id="mobileMenu" class="hidden md:hidden border-t border-[var(--panel-line)] px-6 py-4 bg-[var(--panel)]">
+    <ul class="flex flex-col gap-4 text-sm font-medium text-[var(--steel)]">
+      <li><a href="#features" class="nav-link">Features</a></li>
+      <li><a href="#proof" class="nav-link">Trusted By</a></li>
+      <li><a href="#testimonials" class="nav-link">Reviews</a></li>
+      <li><a href="#pricing" class="nav-link">Pricing</a></li>
+      <li><a href="#faq" class="nav-link">FAQ</a></li>
+      <li><a href="#platform-demo" class="nav-link">Live Demo</a></li>
+      <li>
+        <button data-open-signin class="w-full text-center border border-[var(--panel-line)] text-sm font-medium px-4 py-2.5 rounded-lg block">
+          Sign In
+        </button>
+      </li>
+      <li><button data-open-demo class="btn-primary text-white text-center font-semibold px-5 py-2.5 rounded-lg block w-full">Book a Pilot Demo</button></li>
+    </ul>
+
+  </div>
+</header>
+
+<main>
+
+  <!-- ============ 2. HERO SECTION ============ -->
+  <section class="relative overflow-hidden">
+    <!-- Live wallpaper: looping railway footage background -->
+    <video autoplay muted loop playsinline preload="auto"
+           class="absolute inset-0 w-full h-full object-cover opacity-25">
+      <source src="https://videos.pexels.com/video-files/4780581/4780581-hd_1920_1080_30fps.mp4" type="video/mp4">
+    </video>
+    <div class="absolute inset-0 bg-[var(--graphite)]/70"></div>
+    <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,_rgba(76,143,192,0.14),_transparent_55%)]"></div>
+    <div class="max-w-7xl mx-auto px-6 pt-20 pb-24 grid lg:grid-cols-2 gap-12 items-center relative">
+      <div>
+        <p class="font-mono text-xs uppercase tracking-widest text-[var(--steelblue)] mb-4">Railway Track Intelligence</p>
+        <h1 class="font-head text-4xl sm:text-5xl font-semibold leading-tight mb-6">
+          Spot track defects <span class="text-[var(--signal)]">before</span> they become derailments.
+        </h1>
+        <p class="text-lg text-[var(--steel)] mb-8 max-w-xl">
+          TrackGuard AI scans track imagery and video with computer vision, scoring every
+          defect by severity so your team knows exactly where to act first — no more waiting
+          for the next manual inspection cycle to find out.
+        </p>
+        <div class="flex flex-wrap gap-4">
+          <button data-open-demo class="btn-primary text-white font-head font-semibold px-7 py-3.5 rounded-lg">
+            Book a Pilot Demo
+          </button>
+          <a href="#features" class="btn-secondary font-head font-semibold px-7 py-3.5 rounded-lg text-[var(--board)]">
+            See How It Works
+          </a>
+        </div>
+        <p class="mt-6 text-sm text-[var(--steel)]">No procurement lock-in. Pilot deployable in under 3 weeks.</p>
+      </div>
+
+      <div class="relative">
+        <div class="rounded-2xl overflow-hidden border border-[var(--panel-line)] shadow-2xl bg-[var(--panel)] p-5">
+          <!-- Mock dashboard UI (built in HTML/CSS, not a stock photo) -->
+          <div class="flex items-center justify-between mb-5">
+            <p class="font-head text-sm font-semibold">Section Risk Overview</p>
+            <span class="text-xs text-[var(--steel)] font-mono">Line 14 &middot; Live</span>
+          </div>
+          <div class="space-y-3">
+            <div class="flex items-center justify-between bg-[var(--panel-alt)] border border-[var(--panel-line)] rounded-lg px-4 py-3">
+              <div>
+                <p class="text-sm font-medium">Section 14B</p>
+                <p class="text-xs text-[var(--steel)]">Surface crack &middot; KM 42.3</p>
+              </div>
+              <span class="text-xs font-head font-semibold px-2.5 py-1 rounded-full bg-[var(--signal)]/20 text-[var(--signal)]">High</span>
+            </div>
+            <div class="flex items-center justify-between bg-[var(--panel-alt)] border border-[var(--panel-line)] rounded-lg px-4 py-3">
+              <div>
+                <p class="text-sm font-medium">Section 09A</p>
+                <p class="text-xs text-[var(--steel)]">Minor misalignment &middot; KM 18.7</p>
+              </div>
+              <span class="text-xs font-head font-semibold px-2.5 py-1 rounded-full bg-yellow-500/20 text-yellow-400">Medium</span>
+            </div>
+            <div class="flex items-center justify-between bg-[var(--panel-alt)] border border-[var(--panel-line)] rounded-lg px-4 py-3">
+              <div>
+                <p class="text-sm font-medium">Section 22C</p>
+                <p class="text-xs text-[var(--steel)]">No defects found &middot; KM 61.0</p>
+              </div>
+              <span class="text-xs font-head font-semibold px-2.5 py-1 rounded-full bg-green-500/20 text-green-400">Clear</span>
+            </div>
+          </div>
+          <div class="mt-5 pt-4 border-t border-[var(--panel-line)] flex items-center justify-between text-xs text-[var(--steel)]">
+            <span>Last scan: 6 minutes ago</span>
+            <a href="#" class="text-[var(--steelblue)] font-medium hover:text-[var(--signal)] transition-colors">View full report →</a>
+          </div>
+        </div>
+        <div class="absolute -bottom-5 -left-5 bg-[var(--panel)] border border-[var(--panel-line)] rounded-xl px-5 py-4 shadow-xl hidden sm:block">
+          <p class="text-xs text-[var(--steel)] mb-1">Defect Risk Score</p>
+          <p class="font-head text-2xl text-[var(--signal)] font-semibold">High — Section 14B</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 3. SOCIAL PROOF / TRUST BAR ============ -->
+  <section id="proof" class="border-y border-[var(--panel-line)] bg-[var(--panel-alt)] overflow-hidden">
+    <div class="max-w-7xl mx-auto px-6 py-10">
+      <p class="text-center text-xs uppercase tracking-widest text-[var(--steel)] mb-8">
+        Trusted by rail networks and safety teams
+      </p>
+    </div>
+    <div class="marquee-viewport">
+      <div class="marquee-track">
+        <div class="marquee-group">
+          <div class="logo-dim flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[var(--steelblue)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h8m-8 4h8m-9 8l1.5-3h9L20 19M6 3h12a2 2 0 012 2v9a2 2 0 01-2 2H6a2 2 0 01-2-2V5a2 2 0 012-2z" />
+            </svg>
+            <span class="font-head text-base font-semibold tracking-wide">NORTHLINE</span>
+          </div>
+          <div class="logo-dim flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[var(--signal)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="9" stroke-linecap="round" />
+              <path stroke-linecap="round" d="M12 7v5l3 3" />
+            </svg>
+            <span class="font-head text-base font-semibold tracking-wide">METROTRACK</span>
+          </div>
+          <div class="logo-dim flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[var(--steelblue)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 12h18M3 6h18M3 18h18" />
+            </svg>
+            <span class="font-head text-base font-semibold tracking-wide">CONTINENTAL RAIL</span>
+          </div>
+          <div class="logo-dim flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[var(--signal)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z" />
+            </svg>
+            <span class="font-head text-base font-semibold tracking-wide">SAFEGAUGE</span>
+          </div>
+          <div class="logo-dim flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[var(--steelblue)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <rect x="4" y="4" width="16" height="16" rx="3" stroke-linecap="round" />
+              <path stroke-linecap="round" d="M8 12h8" />
+            </svg>
+            <span class="font-head text-base font-semibold tracking-wide">RAILCORP</span>
+          </div>
+          <div class="logo-dim flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[var(--signal)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 17l6-10 4 6 3-4 3 8" />
+            </svg>
+            <span class="font-head text-base font-semibold tracking-wide">TRANSITWORKS</span>
+          </div>
+
+          <div class="logo-dim flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[var(--signal)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 6l8-3 8 3M4 6v12l8 3 8-3V6M4 6l8 3m0 0l8-3m-8 3v12" />
+            </svg>
+            <span class="font-head text-base font-semibold tracking-wide">UNION PACIFIC RAIL</span>
+          </div>
+          <div class="logo-dim flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[var(--steelblue)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 20l5-8 4 5 3-6 6 9" />
+            </svg>
+            <span class="font-head text-base font-semibold tracking-wide">SUMMIT JUNCTION</span>
+          </div>
+          <div class="logo-dim flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[var(--signal)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M2 15c2 0 2-2 4-2s2 2 4 2 2-2 4-2 2 2 4 2 2-2 4-2" />
+            </svg>
+            <span class="font-head text-base font-semibold tracking-wide">COASTAL TRANSIT</span>
+          </div>
+          <div class="logo-dim flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[var(--steelblue)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 15l6-6 6 6M6 9l6-6 6 6" />
+            </svg>
+            <span class="font-head text-base font-semibold tracking-wide">HIGHLAND RAIL GROUP</span>
+          </div>
+          <div class="logo-dim flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[var(--signal)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="9" stroke-linecap="round" />
+              <path stroke-linecap="round" d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18" />
+            </svg>
+            <span class="font-head text-base font-semibold tracking-wide">EUROTRACK SYSTEMS</span>
+          </div>
+          <div class="logo-dim flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[var(--steelblue)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 2l3 7 7 3-7 3-3 7-3-7-7-3 7-3z" />
+            </svg>
+            <span class="font-head text-base font-semibold tracking-wide">MERIDIAN RAILWAYS</span>
+          </div>
+        </div>
+        <!-- Duplicate group for seamless infinite loop (aria-hidden: decorative repeat) -->
+        <div class="marquee-group" aria-hidden="true">
+          <div class="logo-dim flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[var(--steelblue)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h8m-8 4h8m-9 8l1.5-3h9L20 19M6 3h12a2 2 0 012 2v9a2 2 0 01-2 2H6a2 2 0 01-2-2V5a2 2 0 012-2z" />
+            </svg>
+            <span class="font-head text-base font-semibold tracking-wide">NORTHLINE</span>
+          </div>
+          <div class="logo-dim flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[var(--signal)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="9" stroke-linecap="round" />
+              <path stroke-linecap="round" d="M12 7v5l3 3" />
+            </svg>
+            <span class="font-head text-base font-semibold tracking-wide">METROTRACK</span>
+          </div>
+          <div class="logo-dim flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[var(--steelblue)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 12h18M3 6h18M3 18h18" />
+            </svg>
+            <span class="font-head text-base font-semibold tracking-wide">CONTINENTAL RAIL</span>
+          </div>
+          <div class="logo-dim flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[var(--signal)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z" />
+            </svg>
+            <span class="font-head text-base font-semibold tracking-wide">SAFEGAUGE</span>
+          </div>
+          <div class="logo-dim flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[var(--steelblue)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <rect x="4" y="4" width="16" height="16" rx="3" stroke-linecap="round" />
+              <path stroke-linecap="round" d="M8 12h8" />
+            </svg>
+            <span class="font-head text-base font-semibold tracking-wide">RAILCORP</span>
+          </div>
+          <div class="logo-dim flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[var(--signal)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 17l6-10 4 6 3-4 3 8" />
+            </svg>
+            <span class="font-head text-base font-semibold tracking-wide">TRANSITWORKS</span>
+          </div>
+
+          <div class="logo-dim flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[var(--signal)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 6l8-3 8 3M4 6v12l8 3 8-3V6M4 6l8 3m0 0l8-3m-8 3v12" />
+            </svg>
+            <span class="font-head text-base font-semibold tracking-wide">UNION PACIFIC RAIL</span>
+          </div>
+          <div class="logo-dim flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[var(--steelblue)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 20l5-8 4 5 3-6 6 9" />
+            </svg>
+            <span class="font-head text-base font-semibold tracking-wide">SUMMIT JUNCTION</span>
+          </div>
+          <div class="logo-dim flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[var(--signal)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M2 15c2 0 2-2 4-2s2 2 4 2 2-2 4-2 2 2 4 2 2-2 4-2" />
+            </svg>
+            <span class="font-head text-base font-semibold tracking-wide">COASTAL TRANSIT</span>
+          </div>
+          <div class="logo-dim flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[var(--steelblue)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 15l6-6 6 6M6 9l6-6 6 6" />
+            </svg>
+            <span class="font-head text-base font-semibold tracking-wide">HIGHLAND RAIL GROUP</span>
+          </div>
+          <div class="logo-dim flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[var(--signal)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="9" stroke-linecap="round" />
+              <path stroke-linecap="round" d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18" />
+            </svg>
+            <span class="font-head text-base font-semibold tracking-wide">EUROTRACK SYSTEMS</span>
+          </div>
+          <div class="logo-dim flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[var(--steelblue)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 2l3 7 7 3-7 3-3 7-3-7-7-3 7-3z" />
+            </svg>
+            <span class="font-head text-base font-semibold tracking-wide">MERIDIAN RAILWAYS</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 4. CORE FEATURES / BENEFITS ============ -->
+  <section id="features" class="max-w-7xl mx-auto px-6 py-24">
+    <div class="max-w-2xl mb-14">
+      <p class="font-mono text-xs uppercase tracking-widest text-[var(--steelblue)] mb-3">What You Get</p>
+      <h2 class="font-head text-3xl sm:text-4xl font-semibold mb-4">Built for the team that can't afford to miss a crack.</h2>
+      <p class="text-[var(--steel)]">Every feature exists to answer one question: which section needs attention first?</p>
+    </div>
+
+    <div class="grid md:grid-cols-3 gap-6">
+      <!-- Feature 1 -->
+      <div class="card rounded-xl p-7">
+        <div class="w-11 h-11 rounded-lg bg-[var(--signal)]/15 flex items-center justify-center mb-5">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-[var(--signal)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
+          </svg>
+        </div>
+        <h3 class="font-head text-lg font-semibold mb-2">Know it's failing, not just that it might be.</h3>
+        <p class="text-sm text-[var(--steel)]">Computer vision flags cracks and fractures the moment they appear in footage — not weeks later at the next scheduled walk-through.</p>
+      </div>
+
+      <!-- Feature 2 -->
+      <div class="card rounded-xl p-7">
+        <div class="w-11 h-11 rounded-lg bg-[var(--steelblue)]/15 flex items-center justify-center mb-5">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-[var(--steelblue)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 12V5.25" />
+          </svg>
+        </div>
+        <h3 class="font-head text-lg font-semibold mb-2">Stop guessing which section to inspect first.</h3>
+        <p class="text-sm text-[var(--steel)]">Every defect gets a severity score, so your crew's next stop is always the highest-risk section — not just the next one on the list.</p>
+      </div>
+
+      <!-- Feature 3 -->
+      <div class="card rounded-xl p-7">
+        <div class="w-11 h-11 rounded-lg bg-[var(--signal)]/15 flex items-center justify-center mb-5">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-[var(--signal)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+          </svg>
+        </div>
+        <h3 class="font-head text-lg font-semibold mb-2">Never miss the alert because no one checked the dashboard.</h3>
+        <p class="text-sm text-[var(--steel)]">Automatic alerts reach maintenance leads directly the moment a high-risk defect is confirmed — no dashboard-refreshing required.</p>
+      </div>
+
+      <!-- Feature 4 -->
+      <div class="card rounded-xl p-7">
+        <div class="w-11 h-11 rounded-lg bg-[var(--steelblue)]/15 flex items-center justify-center mb-5">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-[var(--steelblue)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+          </svg>
+        </div>
+        <h3 class="font-head text-lg font-semibold mb-2">Watch risk trends before they turn into incidents.</h3>
+        <p class="text-sm text-[var(--steel)]">Historical defect analysis shows which sections are deteriorating over time, so budget goes toward prevention, not just repair.</p>
+      </div>
+
+      <!-- Feature 5 -->
+      <div class="card rounded-xl p-7">
+        <div class="w-11 h-11 rounded-lg bg-[var(--signal)]/15 flex items-center justify-center mb-5">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-[var(--signal)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6.115 5.19l.319 1.913A6 6 0 008.11 10.36L9.75 12l-.387.775c-.217.433-.132.956.21 1.298l1.348 1.348c.21.21.329.497.329.795v1.089c0 .426.24.815.622 1.006l.153.076c.433.217.956.132 1.298-.21l.723-.723a8.7 8.7 0 002.288-4.042 1.087 1.087 0 00-.358-1.099l-1.33-1.108c-.251-.21-.582-.299-.905-.245l-1.17.195a1.125 1.125 0 01-.98-.314l-.295-.295a1.125 1.125 0 010-1.591l.13-.132a1.125 1.125 0 011.3-.21l.603.302a.809.809 0 001.086-1.086L14.25 7.5l1.256-.837a4.5 4.5 0 001.528-1.732l.146-.292M6.115 5.19A9 9 0 1017.18 4.64M6.115 5.19A8.965 8.965 0 0112 3c1.929 0 3.716.607 5.18 1.64" />
+          </svg>
+        </div>
+        <h3 class="font-head text-lg font-semibold mb-2">Get footage analyzed without buying new hardware.</h3>
+        <p class="text-sm text-[var(--steel)]">Works with your existing inspection cameras and Track Recording Car footage — no proprietary sensors to install first.</p>
+      </div>
+
+      <!-- Feature 6 -->
+      <div class="card rounded-xl p-7">
+        <div class="w-11 h-11 rounded-lg bg-[var(--steelblue)]/15 flex items-center justify-center mb-5">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-[var(--steelblue)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M11.35 3.836c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.3 0a2.251 2.251 0 015.3 0m-5.3 0c-.335.114-.65.257-.949.425m6.25-.425c.335.114.65.257.949.425m0 0A5.973 5.973 0 0119.5 6.75c0 3.463-2.55 6.5-5.7 6.5-3.15 0-5.7-3.037-5.7-6.5 0-1.293.44-2.483 1.15-3.489m9.5 0a4.5 4.5 0 00-9.5 0" />
+          </svg>
+        </div>
+        <h3 class="font-head text-lg font-semibold mb-2">Give your inspectors an answer they can defend.</h3>
+        <p class="text-sm text-[var(--steel)]">Every risk score comes with the imagery and classification behind it, so maintenance decisions hold up under audit review.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 5. TESTIMONIALS ============ -->
+  <section id="testimonials" class="bg-[var(--panel-alt)] border-y border-[var(--panel-line)]">
+    <div class="max-w-7xl mx-auto px-6 py-24">
+      <div class="max-w-2xl mb-14">
+        <p class="font-mono text-xs uppercase tracking-widest text-[var(--steelblue)] mb-3">From the Field</p>
+        <h2 class="font-head text-3xl sm:text-4xl font-semibold">Teams stopped reacting and started preventing.</h2>
+      </div>
+
+      <div class="grid md:grid-cols-2 gap-6">
+        <div class="card rounded-xl p-8">
+          <div class="flex gap-1 mb-4 text-[var(--signal)]">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5"><path fill-rule="evenodd" d="M10.868 2.884c-.321-.772-1.415-.772-1.736 0l-1.83 4.401-4.753.381c-.833.067-1.171 1.107-.536 1.651l3.62 3.102-1.106 4.637c-.194.812.691 1.45 1.405 1.02L10 15.591l4.069 2.485c.713.43 1.598-.208 1.404-1.02l-1.106-4.637 3.62-3.102c.635-.544.297-1.584-.536-1.65l-4.752-.382-1.831-4.401z" clip-rule="evenodd"/></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5"><path fill-rule="evenodd" d="M10.868 2.884c-.321-.772-1.415-.772-1.736 0l-1.83 4.401-4.753.381c-.833.067-1.171 1.107-.536 1.651l3.62 3.102-1.106 4.637c-.194.812.691 1.45 1.405 1.02L10 15.591l4.069 2.485c.713.43 1.598-.208 1.404-1.02l-1.106-4.637 3.62-3.102c.635-.544.297-1.584-.536-1.65l-4.752-.382-1.831-4.401z" clip-rule="evenodd"/></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5"><path fill-rule="evenodd" d="M10.868 2.884c-.321-.772-1.415-.772-1.736 0l-1.83 4.401-4.753.381c-.833.067-1.171 1.107-.536 1.651l3.62 3.102-1.106 4.637c-.194.812.691 1.45 1.405 1.02L10 15.591l4.069 2.485c.713.43 1.598-.208 1.404-1.02l-1.106-4.637 3.62-3.102c.635-.544.297-1.584-.536-1.65l-4.752-.382-1.831-4.401z" clip-rule="evenodd"/></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5"><path fill-rule="evenodd" d="M10.868 2.884c-.321-.772-1.415-.772-1.736 0l-1.83 4.401-4.753.381c-.833.067-1.171 1.107-.536 1.651l3.62 3.102-1.106 4.637c-.194.812.691 1.45 1.405 1.02L10 15.591l4.069 2.485c.713.43 1.598-.208 1.404-1.02l-1.106-4.637 3.62-3.102c.635-.544.297-1.584-.536-1.65l-4.752-.382-1.831-4.401z" clip-rule="evenodd"/></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5"><path fill-rule="evenodd" d="M10.868 2.884c-.321-.772-1.415-.772-1.736 0l-1.83 4.401-4.753.381c-.833.067-1.171 1.107-.536 1.651l3.62 3.102-1.106 4.637c-.194.812.691 1.45 1.405 1.02L10 15.591l4.069 2.485c.713.43 1.598-.208 1.404-1.02l-1.106-4.637 3.62-3.102c.635-.544.297-1.584-.536-1.65l-4.752-.382-1.831-4.401z" clip-rule="evenodd"/></svg>
+          </div>
+          <p class="text-[var(--board)] mb-6 leading-relaxed">
+            "We used to find out about track deterioration when it was already urgent. Now we see it coming weeks out, and our crews are working from a prioritized list instead of a full-line walk."
+          </p>
+          <div class="flex items-center gap-3">
+            <div class="w-11 h-11 rounded-full bg-[var(--steelblue)]/20 flex items-center justify-center font-head font-semibold text-[var(--steelblue)]">RA</div>
+            <div>
+              <p class="font-semibold text-sm">R. Adebayo</p>
+              <p class="text-xs text-[var(--steel)]">Maintenance Superintendent, Continental Rail</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="card rounded-xl p-8">
+          <div class="flex gap-1 mb-4 text-[var(--signal)]">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5"><path fill-rule="evenodd" d="M10.868 2.884c-.321-.772-1.415-.772-1.736 0l-1.83 4.401-4.753.381c-.833.067-1.171 1.107-.536 1.651l3.62 3.102-1.106 4.637c-.194.812.691 1.45 1.405 1.02L10 15.591l4.069 2.485c.713.43 1.598-.208 1.404-1.02l-1.106-4.637 3.62-3.102c.635-.544.297-1.584-.536-1.65l-4.752-.382-1.831-4.401z" clip-rule="evenodd"/></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5"><path fill-rule="evenodd" d="M10.868 2.884c-.321-.772-1.415-.772-1.736 0l-1.83 4.401-4.753.381c-.833.067-1.171 1.107-.536 1.651l3.62 3.102-1.106 4.637c-.194.812.691 1.45 1.405 1.02L10 15.591l4.069 2.485c.713.43 1.598-.208 1.404-1.02l-1.106-4.637 3.62-3.102c.635-.544.297-1.584-.536-1.65l-4.752-.382-1.831-4.401z" clip-rule="evenodd"/></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5"><path fill-rule="evenodd" d="M10.868 2.884c-.321-.772-1.415-.772-1.736 0l-1.83 4.401-4.753.381c-.833.067-1.171 1.107-.536 1.651l3.62 3.102-1.106 4.637c-.194.812.691 1.45 1.405 1.02L10 15.591l4.069 2.485c.713.43 1.598-.208 1.404-1.02l-1.106-4.637 3.62-3.102c.635-.544.297-1.584-.536-1.65l-4.752-.382-1.831-4.401z" clip-rule="evenodd"/></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5"><path fill-rule="evenodd" d="M10.868 2.884c-.321-.772-1.415-.772-1.736 0l-1.83 4.401-4.753.381c-.833.067-1.171 1.107-.536 1.651l3.62 3.102-1.106 4.637c-.194.812.691 1.45 1.405 1.02L10 15.591l4.069 2.485c.713.43 1.598-.208 1.404-1.02l-1.106-4.637 3.62-3.102c.635-.544.297-1.584-.536-1.65l-4.752-.382-1.831-4.401z" clip-rule="evenodd"/></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5"><path fill-rule="evenodd" d="M10.868 2.884c-.321-.772-1.415-.772-1.736 0l-1.83 4.401-4.753.381c-.833.067-1.171 1.107-.536 1.651l3.62 3.102-1.106 4.637c-.194.812.691 1.45 1.405 1.02L10 15.591l4.069 2.485c.713.43 1.598-.208 1.404-1.02l-1.106-4.637 3.62-3.102c.635-.544.297-1.584-.536-1.65l-4.752-.382-1.831-4.401z" clip-rule="evenodd"/></svg>
+          </div>
+          <p class="text-[var(--board)] mb-6 leading-relaxed">
+            "The severity scoring alone changed how we schedule maintenance. We're not debating which section is worse anymore — the data settles it, and audits go a lot smoother with the imagery attached."
+          </p>
+          <div class="flex items-center gap-3">
+            <div class="w-11 h-11 rounded-full bg-[var(--signal)]/20 flex items-center justify-center font-head font-semibold text-[var(--signal)]">LF</div>
+            <div>
+              <p class="font-semibold text-sm">L. Fernandes</p>
+              <p class="text-xs text-[var(--steel)]">Safety Inspector, NorthLine Rail</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 6. PRICING SECTION ============ -->
+  <section id="pricing" class="max-w-7xl mx-auto px-6 py-24">
+    <div class="max-w-2xl mx-auto text-center mb-14">
+      <p class="font-mono text-xs uppercase tracking-widest text-[var(--steelblue)] mb-3">Pricing</p>
+      <h2 class="font-head text-3xl sm:text-4xl font-semibold mb-4">Start with a pilot. Scale when it proves out.</h2>
+      <p class="text-[var(--steel)]">No long-term contract required for the pilot tier.</p>
+    </div>
+
+    <div class="grid md:grid-cols-3 gap-6 items-start">
+      <!-- Tier 1 -->
+      <div class="pricing-card card rounded-2xl p-8">
+        <h3 class="font-head text-lg font-semibold mb-1">Pilot</h3>
+        <p class="text-sm text-[var(--steel)] mb-6">For a single line or depot testing the waters.</p>
+        <p class="font-head text-4xl font-semibold mb-1">₹700<span class="text-lg text-[var(--steel)] font-normal">/mo</span></p>
+        <p class="text-sm text-[var(--steel)] mb-6">Up to 50km of track, billed monthly</p>
+        <button data-open-demo class="btn-secondary w-full text-center font-head font-semibold px-6 py-3 rounded-lg mb-8">Talk to Sales</button>
+        <ul class="space-y-3 text-sm text-[var(--steel)]">
+          <li class="flex gap-2"><span class="text-[var(--steelblue)]">✓</span> Up to 50km of track coverage</li>
+          <li class="flex gap-2"><span class="text-[var(--steelblue)]">✓</span> Crack &amp; surface-defect detection</li>
+          <li class="flex gap-2"><span class="text-[var(--steelblue)]">✓</span> Basic risk dashboard</li>
+          <li class="flex gap-2"><span class="text-[var(--steelblue)]">✓</span> Email support</li>
+        </ul>
+      </div>
+
+      <!-- Tier 2 - Featured -->
+      <div class="pricing-card pricing-featured card rounded-2xl p-8 relative md:-mt-4">
+        <span class="absolute -top-3 left-1/2 -translate-x-1/2 bg-[var(--signal)] text-white text-xs font-head font-semibold px-4 py-1 rounded-full">
+          Most Popular
+        </span>
+        <h3 class="font-head text-lg font-semibold mb-1">Regional Network</h3>
+        <p class="text-sm text-[var(--steel)] mb-6">For maintenance teams covering multiple lines.</p>
+        <p class="font-head text-4xl font-semibold mb-1">₹1,000<span class="text-lg text-[var(--steel)] font-normal">/mo</span></p>
+        <p class="text-sm text-[var(--steel)] mb-6">Up to 500km, billed annually</p>
+        <button data-open-demo class="btn-primary w-full text-center text-white font-head font-semibold px-6 py-3 rounded-lg mb-8">Book a Pilot Demo</button>
+        <ul class="space-y-3 text-sm text-[var(--steel)]">
+          <li class="flex gap-2"><span class="text-[var(--signal)]">✓</span> Unlimited track coverage</li>
+          <li class="flex gap-2"><span class="text-[var(--signal)]">✓</span> Full defect classification &amp; severity scoring</li>
+          <li class="flex gap-2"><span class="text-[var(--signal)]">✓</span> Automatic maintenance alerts</li>
+          <li class="flex gap-2"><span class="text-[var(--signal)]">✓</span> Historical defect analysis</li>
+          <li class="flex gap-2"><span class="text-[var(--signal)]">✓</span> Priority support + onboarding</li>
+        </ul>
+      </div>
+
+      <!-- Tier 3 -->
+      <div class="pricing-card card rounded-2xl p-8">
+        <h3 class="font-head text-lg font-semibold mb-1">National Network</h3>
+        <p class="text-sm text-[var(--steel)] mb-6">For railway authorities operating at national scale.</p>
+        <p class="font-head text-4xl font-semibold mb-1">Custom</p>
+        <p class="text-sm text-[var(--steel)] mb-6">Enterprise procurement terms</p>
+        <button data-open-demo class="btn-secondary w-full text-center font-head font-semibold px-6 py-3 rounded-lg mb-8">Talk to Sales</button>
+        <ul class="space-y-3 text-sm text-[var(--steel)]">
+          <li class="flex gap-2"><span class="text-[var(--steelblue)]">✓</span> Everything in Regional Network</li>
+          <li class="flex gap-2"><span class="text-[var(--steelblue)]">✓</span> Dedicated infrastructure &amp; SLA</li>
+          <li class="flex gap-2"><span class="text-[var(--steelblue)]">✓</span> Custom integrations (existing TRC systems)</li>
+          <li class="flex gap-2"><span class="text-[var(--steelblue)]">✓</span> On-site training &amp; audit support</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 7. FAQ SECTION ============ -->
+  <section id="faq" class="bg-[var(--panel-alt)] border-y border-[var(--panel-line)]">
+    <div class="max-w-3xl mx-auto px-6 py-24">
+      <div class="text-center mb-14">
+        <p class="font-mono text-xs uppercase tracking-widest text-[var(--steelblue)] mb-3">Questions</p>
+        <h2 class="font-head text-3xl sm:text-4xl font-semibold">Before you book a call</h2>
+      </div>
+
+      <div class="space-y-3" id="faqList">
+        <div class="faq-item card rounded-xl px-6 py-5">
+          <button class="faq-toggle w-full flex items-center justify-between text-left font-head font-semibold">
+            <span>Do we need new cameras or sensors to use this?</span>
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0 text-[var(--steelblue)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
+          <div class="faq-answer">
+            <p class="text-sm text-[var(--steel)] pt-4 pr-8">
+              No. TrackGuard AI works with footage from your existing inspection cameras and
+              Track Recording Car systems. If you already capture track imagery in some form,
+              we can usually work with it — we'll confirm compatibility during the pilot scoping call.
+            </p>
+          </div>
+        </div>
+
+        <div class="faq-item card rounded-xl px-6 py-5">
+          <button class="faq-toggle w-full flex items-center justify-between text-left font-head font-semibold">
+            <span>How accurate is the defect detection?</span>
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0 text-[var(--steelblue)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
+          <div class="faq-answer">
+            <p class="text-sm text-[var(--steel)] pt-4 pr-8">
+              Accuracy depends on footage quality and defect type, which is exactly what the
+              pilot phase is for — we validate detection rates against your team's manual
+              inspection findings before any full rollout, so you see real numbers before committing.
+            </p>
+          </div>
+        </div>
+
+        <div class="faq-item card rounded-xl px-6 py-5">
+          <button class="faq-toggle w-full flex items-center justify-between text-left font-head font-semibold">
+            <span>What happens to our data?</span>
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0 text-[var(--steelblue)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
+          <div class="faq-answer">
+            <p class="text-sm text-[var(--steel)] pt-4 pr-8">
+              Track imagery and inspection data stay under your organization's control. We don't
+              share footage or defect data across customers, and data-handling terms are laid
+              out explicitly in the pilot agreement before anything is uploaded.
+            </p>
+          </div>
+        </div>
+
+        <div class="faq-item card rounded-xl px-6 py-5">
+          <button class="faq-toggle w-full flex items-center justify-between text-left font-head font-semibold">
+            <span>How long until we see results?</span>
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0 text-[var(--steelblue)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
+          <div class="faq-answer">
+            <p class="text-sm text-[var(--steel)] pt-4 pr-8">
+              Most pilots go from kickoff call to first risk report in under three weeks,
+              depending on how much existing footage you can provide up front. Ongoing
+              monitoring becomes continuous once the pilot dashboard is live.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PLATFORM DEMO (HTML5 API SHOWCASE) ============ -->
+  <section id="platform-demo" class="max-w-7xl mx-auto px-6 py-24">
+    <div class="max-w-2xl mb-14">
+      <p class="font-mono text-xs uppercase tracking-widest text-[var(--steelblue)] mb-3">Try It Live</p>
+      <h2 class="font-head text-3xl sm:text-4xl font-semibold mb-4">A working preview, right in your browser.</h2>
+      <p class="text-[var(--steel)]">These widgets run entirely client-side using native browser APIs — no backend, no data leaving your device.</p>
+    </div>
+
+    <div class="grid md:grid-cols-2 gap-6">
+
+      <!-- Geolocation API -->
+      <div class="card rounded-xl p-7">
+        <div class="w-11 h-11 rounded-lg bg-[var(--signal)]/15 flex items-center justify-center mb-5">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-[var(--signal)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+          </svg>
+        </div>
+        <h3 class="font-head text-lg font-semibold mb-2">Geolocation API</h3>
+        <p class="text-sm text-[var(--steel)] mb-4">Tag an inspection site with your current coordinates.</p>
+        <button id="apiGeoBtn" class="btn-secondary text-sm font-semibold px-4 py-2.5 rounded-lg mb-3">Detect My Location</button>
+        <p id="apiGeoStatus" class="text-xs text-[var(--steel)]">No location detected yet.</p>
+      </div>
+
+      <!-- Local Storage API -->
+      <div class="card rounded-xl p-7">
+        <div class="w-11 h-11 rounded-lg bg-[var(--steelblue)]/15 flex items-center justify-center mb-5">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-[var(--steelblue)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m6-6H6" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 4.5h15a1.5 1.5 0 011.5 1.5v12a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18V6a1.5 1.5 0 011.5-1.5z" />
+          </svg>
+        </div>
+        <h3 class="font-head text-lg font-semibold mb-2">Local Storage API</h3>
+        <p class="text-sm text-[var(--steel)] mb-4">Save inspector notes that persist across page reloads.</p>
+        <form id="apiNoteForm" class="flex gap-2 mb-3">
+          <input id="apiNoteInput" type="text" placeholder="e.g. Hairline crack near km 42.3" required
+                 class="flex-1 bg-[var(--panel-alt)] border border-[var(--panel-line)] rounded-lg px-3 py-2 text-sm text-[var(--board)] focus:outline-none focus:border-[var(--steelblue)]">
+          <button type="submit" class="btn-primary text-white text-sm font-semibold px-4 py-2 rounded-lg">Save</button>
+        </form>
+        <ul id="apiNoteList" class="space-y-1.5 text-xs text-[var(--steel)] max-h-24 overflow-y-auto"></ul>
+      </div>
+
+      <!-- Canvas API -->
+      <div class="card rounded-xl p-7">
+        <div class="w-11 h-11 rounded-lg bg-[var(--signal)]/15 flex items-center justify-center mb-5">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-[var(--signal)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9.53 16.122a3 3 0 00-5.78 1.128 2.25 2.25 0 01-2.4 2.245 4.5 4.5 0 008.4-2.245c0-.399-.078-.78-.22-1.128zm0 0a15.998 15.998 0 003.388-1.62m-5.043-.025a15.994 15.994 0 011.622-3.395m3.42 3.42a15.995 15.995 0 004.764-4.648l3.876-5.814a1.151 1.151 0 00-1.597-1.597L14.146 6.32a15.996 15.996 0 00-4.649 4.763m3.42 3.42a6.776 6.776 0 00-3.42-3.42" />
+          </svg>
+        </div>
+        <h3 class="font-head text-lg font-semibold mb-2">Canvas API</h3>
+        <p class="text-sm text-[var(--steel)] mb-4">A live-rendered track diagram with a pulsing defect marker.</p>
+        <canvas id="apiCanvas" width="280" height="120" class="w-full rounded-lg border border-[var(--panel-line)] bg-[var(--panel-alt)]"></canvas>
+      </div>
+
+      <!-- Audio + Video API -->
+      <div class="card rounded-xl p-7">
+        <div class="w-11 h-11 rounded-lg bg-[var(--steelblue)]/15 flex items-center justify-center mb-5">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-[var(--steelblue)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.5a.75.75 0 01-.75-.75V9a.75.75 0 01.75-.75h2.25z" />
+          </svg>
+        </div>
+        <h3 class="font-head text-lg font-semibold mb-2">Audio &amp; Video APIs</h3>
+        <p class="text-sm text-[var(--steel)] mb-4">An audible high-risk alert tone, plus inspection footage playback.</p>
+        <button id="apiAudioBtn" class="btn-secondary text-sm font-semibold px-4 py-2.5 rounded-lg mb-4">Play Alert Tone</button>
+        <video id="apiVideo" controls preload="metadata" class="w-full rounded-lg border border-[var(--panel-line)]">
+          <source src="https://videos.pexels.com/video-files/855691/855691-hd_1920_1080_30fps.mp4" type="video/mp4">
+          Your browser does not support the video tag.
+        </video>
+      </div>
+
+      <!-- File API + Local Storage (photo upload) -->
+      <div class="card rounded-xl p-7 md:col-span-2">
+        <div class="w-11 h-11 rounded-lg bg-[var(--signal)]/15 flex items-center justify-center mb-5">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-[var(--signal)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+          </svg>
+        </div>
+        <h3 class="font-head text-lg font-semibold mb-2">File API + Local Storage</h3>
+        <p class="text-sm text-[var(--steel)] mb-4">Upload track condition photos or videos — select multiple at once. Each is read via the File API and saved as a Local Storage data URL, so they survive a reload.</p>
+        <input id="apiPhotoInput" type="file" accept="image/*,video/*" multiple
+               class="block w-full text-sm text-[var(--board)] mb-2 file:mr-4 file:bg-[var(--signal)] file:text-white file:text-sm file:font-semibold file:px-4 file:py-2 file:rounded-lg file:border-0 file:cursor-pointer hover:file:brightness-110 file:transition">
+        <p id="apiPhotoStatus" class="text-xs text-[var(--steel)] mb-4 min-h-[1em]"></p>
+        <div id="apiPhotoGrid" class="grid grid-cols-3 sm:grid-cols-6 gap-3"></div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============ 8. FINAL CTA (FOOTER HOOK) ============ -->
+  <section class="relative overflow-hidden py-24">
+    <!-- Live wallpaper: looping scenic railway footage background -->
+    <video autoplay muted loop playsinline preload="auto"
+           class="absolute inset-0 w-full h-full object-cover opacity-20">
+      <source src="https://videos.pexels.com/video-files/855691/855691-hd_1920_1080_30fps.mp4" type="video/mp4">
+    </video>
+    <div class="absolute inset-0 bg-[var(--graphite)]/75"></div>
+    <div class="relative max-w-7xl mx-auto px-6 text-center">
+      <h2 class="font-head text-3xl sm:text-4xl font-semibold mb-4">
+        The next defect is already out there. <span class="text-[var(--signal)]">Find it first.</span>
+      </h2>
+      <p class="text-[var(--steel)] max-w-xl mx-auto mb-8">
+        Book a 20-minute call and we'll scope a pilot for your network — no commitment required to talk.
+      </p>
+      <a href="#" data-open-demo class="btn-primary inline-block text-white font-head font-semibold px-8 py-4 rounded-lg">
+        Book a Pilot Demo
+      </a>
+    </div>
+  </section>
+
+</main>
+
+<!-- ============ FOOTER ============ -->
+<footer class="border-t border-[var(--panel-line)]">
+  <div class="max-w-7xl mx-auto px-6 py-12 grid sm:grid-cols-2 md:grid-cols-4 gap-8">
+    <div class="md:col-span-1">
+      <a href="#" class="flex items-center gap-2 font-head text-lg font-semibold mb-3">
+        <span class="w-2 h-2 rounded-full bg-[var(--signal)]"></span>
+        TRACKGUARD AI
+      </a>
+      <p class="text-sm text-[var(--steel)]">Computer-vision track defect detection for railway maintenance teams.</p>
+    </div>
+    <div>
+      <p class="font-head text-sm font-semibold mb-3">Product</p>
+      <ul class="space-y-2 text-sm text-[var(--steel)]">
+        <li><a href="#features" class="nav-link">Features</a></li>
+        <li><a href="#pricing" class="nav-link">Pricing</a></li>
+        <li><a href="#faq" class="nav-link">FAQ</a></li>
+      </ul>
+    </div>
+    <div>
+      <p class="font-head text-sm font-semibold mb-3">Company</p>
+      <ul class="space-y-2 text-sm text-[var(--steel)]">
+        <li><a href="#" class="nav-link">About</a></li>
+        <li><a href="#" class="nav-link">Contact</a></li>
+        <li><a href="#" class="nav-link">Careers</a></li>
+      </ul>
+    </div>
+    <div>
+      <p class="font-head text-sm font-semibold mb-3">Legal</p>
+      <ul class="space-y-2 text-sm text-[var(--steel)]">
+        <li><a href="#" class="nav-link">Privacy Policy</a></li>
+        <li><a href="#" class="nav-link">Terms of Service</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="border-t border-[var(--panel-line)] px-6 py-6 text-center text-xs text-[var(--steel)]">
+    &copy; 2026 TrackGuard AI. All rights reserved.
+    <br class="sm:hidden">
+    <span class="hidden sm:inline"> &middot; </span>
+    Static frontend demo — no backend or external network APIs (Geolocation is a browser-native API, not a network call).
+  </div>
+</footer>
+<!-- ============ SIGN IN MODAL ============ -->
+<div id="signInModal" class="hidden fixed inset-0 z-50 items-center justify-center px-4">
+  <div id="signInOverlay" class="absolute inset-0 bg-black/70"></div>
+  <div class="relative bg-[var(--panel)] border border-[var(--panel-line)] rounded-2xl max-w-sm w-full p-8">
+    <button id="closeSignInModal" class="absolute top-4 right-4 text-[var(--steel)] hover:text-[var(--board)]" aria-label="Close">
+      <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+      </svg>
+    </button>
+
+    <h3 class="font-head text-2xl font-semibold mb-1">Sign in to TrackGuard AI</h3>
+    <p class="text-sm text-[var(--steel)] mb-6">Choose how you'd like to sign in.</p>
+
+    <div class="space-y-3">
+      <button data-provider="Google" class="provider-btn w-full flex items-center justify-center gap-3 border border-[var(--panel-line)] hover:border-[var(--steelblue)] transition-colors text-sm font-medium px-4 py-2.5 rounded-lg">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" class="w-4 h-4">
+          <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/>
+          <path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"/>
+          <path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0124 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/>
+          <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 01-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/>
+        </svg>
+        Continue with Google
+      </button>
+
+      <button data-provider="Microsoft" class="provider-btn w-full flex items-center justify-center gap-3 border border-[var(--panel-line)] hover:border-[var(--steelblue)] transition-colors text-sm font-medium px-4 py-2.5 rounded-lg">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 23 23" class="w-4 h-4">
+          <path fill="#f35325" d="M1 1h10v10H1z"/>
+          <path fill="#81bc06" d="M12 1h10v10H12z"/>
+          <path fill="#05a6f0" d="M1 12h10v10H1z"/>
+          <path fill="#ffba08" d="M12 12h10v10H12z"/>
+        </svg>
+        Continue with Microsoft
+      </button>
+
+      <div class="flex items-center gap-3 py-1">
+        <div class="flex-1 h-px bg-[var(--panel-line)]"></div>
+        <span class="text-xs text-[var(--steel)]">or</span>
+        <div class="flex-1 h-px bg-[var(--panel-line)]"></div>
+      </div>
+
+      <form id="emailSignInForm" class="space-y-3">
+        <input type="email" required placeholder="Work email" class="w-full bg-[var(--panel-alt)] border border-[var(--panel-line)] rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-[var(--steelblue)]">
+        <input type="password" required placeholder="Password" class="w-full bg-[var(--panel-alt)] border border-[var(--panel-line)] rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-[var(--steelblue)]">
+        <button type="submit" class="btn-primary w-full text-white font-head font-semibold px-6 py-2.5 rounded-lg">
+          Sign in with Email
+        </button>
+      </form>
+    </div>
+
+    <p class="text-xs text-[var(--steel)] text-center mt-6">
+      Only these providers are supported. No self-serve signup — accounts are provisioned after your organization's pilot is approved.
+    </p>
+  </div>
+</div>
+
+<!-- ============ DEMO REQUEST MODAL ============ -->
+<div id="demoModal" class="hidden fixed inset-0 z-50 items-center justify-center px-4">
+  <div id="demoOverlay" class="absolute inset-0 bg-black/70"></div>
+  <div class="relative bg-[var(--panel)] border border-[var(--panel-line)] rounded-2xl max-w-md w-full p-8">
+    <button id="closeDemoModal" class="absolute top-4 right-4 text-[var(--steel)] hover:text-[var(--board)]" aria-label="Close">
+      <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+      </svg>
+    </button>
+
+    <div id="demoFormView">
+      <h3 class="font-head text-2xl font-semibold mb-2">Book a Pilot Demo</h3>
+      <p class="text-sm text-[var(--steel)] mb-6">Tell us a bit about your network — we'll follow up within one business day to schedule a call.</p>
+      <form id="demoForm" class="space-y-4">
+        <div>
+          <label class="block text-xs font-medium text-[var(--steel)] mb-1.5" for="demoName">Full name</label>
+          <input id="demoName" type="text" required class="w-full bg-[var(--panel-alt)] border border-[var(--panel-line)] rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-[var(--steelblue)]">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-[var(--steel)] mb-1.5" for="demoEmail">Work email</label>
+          <input id="demoEmail" type="email" required class="w-full bg-[var(--panel-alt)] border border-[var(--panel-line)] rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-[var(--steelblue)]">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-[var(--steel)] mb-1.5" for="demoOrg">Organization</label>
+          <input id="demoOrg" type="text" required class="w-full bg-[var(--panel-alt)] border border-[var(--panel-line)] rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-[var(--steelblue)]">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-[var(--steel)] mb-1.5" for="demoTrack">Approx. track length (km)</label>
+          <input id="demoTrack" type="text" placeholder="e.g. 120" class="w-full bg-[var(--panel-alt)] border border-[var(--panel-line)] rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-[var(--steelblue)]">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-[var(--steel)] mb-1.5">Network region</label>
+          <div class="flex gap-2">
+            <input id="demoLocation" type="text" placeholder="e.g. 12.9716, 77.5946 or a city/region name"
+                   class="flex-1 bg-[var(--panel-alt)] border border-[var(--panel-line)] rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-[var(--steelblue)]">
+            <button type="button" id="detectLocationBtn" class="btn-secondary px-4 py-2.5 rounded-lg text-sm font-medium flex items-center gap-1.5 whitespace-nowrap">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+              </svg>
+              Detect
+            </button>
+          </div>
+          <p id="demoLocationStatus" class="text-xs text-[var(--steel)] mt-1.5"></p>
+          <div id="demoMap" class="mt-2 rounded-lg overflow-hidden border border-[var(--panel-line)]" style="height: 160px; width: 100%;"></div>
+          <p class="text-xs text-[var(--steel)] mt-1.5">Click anywhere on the map to pinpoint your network's location.</p>
+        </div>
+        <button type="submit" class="btn-primary w-full text-white font-head font-semibold px-6 py-3 rounded-lg mt-2">
+          Request Demo
+        </button>
+        <p class="text-xs text-[var(--steel)] text-center">No account or payment required to book a call.</p>
+      </form>
+    </div>
+
+    <div id="demoSuccessView" class="hidden text-center py-6">
+      <div class="w-14 h-14 mx-auto rounded-full bg-[var(--steelblue)]/15 flex items-center justify-center mb-4">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-7 h-7 text-[var(--steelblue)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+        </svg>
+      </div>
+      <h3 class="font-head text-xl font-semibold mb-2">Request received</h3>
+      <p class="text-sm text-[var(--steel)]">Someone from our team will reach out within one business day to schedule your pilot demo.</p>
+    </div>
+  </div>
+</div>
+<script>
+  // Sign-in modal + provider selection (UI/UX ready — swap in real
+  // Google Identity Services / Microsoft MSAL / backend auth per provider)
+  const signInBtn = document.getElementById('signInBtn');
+  const userChip = document.getElementById('userChip');
+  const userInitial = document.getElementById('userInitial');
+  const signOutBtn = document.getElementById('signOutBtn');
+
+  const signInModal = document.getElementById('signInModal');
+  const signInOverlay = document.getElementById('signInOverlay');
+  const closeSignInModal = document.getElementById('closeSignInModal');
+  const emailSignInForm = document.getElementById('emailSignInForm');
+
+  function openSignInModal() {
+    signInModal.classList.remove('hidden');
+    signInModal.classList.add('flex');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeSignIn() {
+    signInModal.classList.add('hidden');
+    signInModal.classList.remove('flex');
+    document.body.style.overflow = '';
+  }
+
+  document.querySelectorAll('[data-open-signin]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      openSignInModal();
+    });
+  });
+  closeSignInModal.addEventListener('click', closeSignIn);
+  signInOverlay.addEventListener('click', closeSignIn);
+
+  function setSignedIn(name) {
+    userInitial.textContent = name.charAt(0).toUpperCase();
+    signInBtn.classList.add('hidden');
+    userChip.classList.remove('hidden');
+    userChip.classList.add('sm:flex');
+    closeSignIn();
+  }
+  function setSignedOut() {
+    signInBtn.classList.remove('hidden');
+    userChip.classList.add('hidden');
+    userChip.classList.remove('sm:flex');
+  }
+
+  // Google / Microsoft provider buttons
+  document.querySelectorAll('.provider-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const provider = btn.dataset.provider;
+      // Placeholder for real OAuth redirect/popup per provider.
+      setSignedIn('Sanju');
+    });
+  });
+
+  // Email/password sign-in
+  emailSignInForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    setSignedIn('Sanju');
+  });
+  if (signOutBtn) signOutBtn.addEventListener('click', setSignedOut);
+
+  // Mobile menu toggle
+  const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+  const mobileMenu = document.getElementById('mobileMenu');
+  mobileMenuBtn.addEventListener('click', () => {
+    mobileMenu.classList.toggle('hidden');
+  });
+
+  // FAQ accordion toggle
+  document.querySelectorAll('.faq-item').forEach((item) => {
+    const btn = item.querySelector('.faq-toggle');
+    btn.addEventListener('click', () => {
+      const isOpen = item.classList.contains('open');
+      document.querySelectorAll('.faq-item').forEach((i) => i.classList.remove('open'));
+      if (!isOpen) item.classList.add('open');
+    });
+  });
+
+  // Demo request modal
+  const demoModal = document.getElementById('demoModal');
+  const demoOverlay = document.getElementById('demoOverlay');
+  const closeDemoModal = document.getElementById('closeDemoModal');
+  const demoForm = document.getElementById('demoForm');
+  const demoFormView = document.getElementById('demoFormView');
+  const demoSuccessView = document.getElementById('demoSuccessView');
+
+  function openDemoModal() {
+    demoModal.classList.remove('hidden');
+    demoModal.classList.add('flex');
+    document.body.style.overflow = 'hidden';
+    demoFormView.classList.remove('hidden');
+    demoSuccessView.classList.add('hidden');
+    demoForm.reset();
+    initDemoMap();
+  }
+  function closeModal() {
+    demoModal.classList.add('hidden');
+    demoModal.classList.remove('flex');
+    document.body.style.overflow = '';
+  }
+
+  document.querySelectorAll('[data-open-demo]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      openDemoModal();
+    });
+  });
+  closeDemoModal.addEventListener('click', closeModal);
+  demoOverlay.addEventListener('click', closeModal);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !demoModal.classList.contains('hidden')) closeModal();
+    if (e.key === 'Escape' && !signInModal.classList.contains('hidden')) closeSignIn();
+  });
+
+  // Interactive map (Leaflet + OpenStreetMap) — click anywhere to pinpoint location
+  let demoMap = null;
+  let demoMarker = null;
+
+  function setDemoMarker(lat, lng, zoom) {
+    if (demoMarker) demoMap.removeLayer(demoMarker);
+    demoMarker = L.marker([lat, lng]).addTo(demoMap);
+    demoMap.setView([lat, lng], zoom || 8);
+  }
+
+  function initDemoMap() {
+    if (demoMap) {
+      setTimeout(() => demoMap.invalidateSize(), 50);
+      setTimeout(() => demoMap.invalidateSize(), 300);
+      return;
+    }
+    demoMap = L.map('demoMap', { attributionControl: false }).setView([20.5937, 78.9629], 4);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+      maxZoom: 18,
+      subdomains: 'abcd',
+    }).addTo(demoMap);
+    // Railway infrastructure overlay — shows actual track lines, signals, stations
+    L.tileLayer('https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenRailwayMap contributors',
+      maxZoom: 18,
+      subdomains: 'abc',
+    }).addTo(demoMap);
+    demoMap.on('click', (e) => {
+      const lat = e.latlng.lat.toFixed(4);
+      const lng = e.latlng.lng.toFixed(4);
+      demoLocation.value = `${lat}, ${lng}`;
+      demoLocationStatus.textContent = 'Location pinned on map.';
+      setDemoMarker(e.latlng.lat, e.latlng.lng, demoMap.getZoom());
+    });
+    setTimeout(() => demoMap.invalidateSize(), 50);
+    setTimeout(() => demoMap.invalidateSize(), 300);
+  }
+
+  // Geolocation API — detect visitor's approximate network region for pilot scoping
+  const detectLocationBtn = document.getElementById('detectLocationBtn');
+  const demoLocation = document.getElementById('demoLocation');
+  const demoLocationStatus = document.getElementById('demoLocationStatus');
+
+  detectLocationBtn.addEventListener('click', () => {
+    if (!navigator.geolocation) {
+      demoLocationStatus.textContent = 'Geolocation is not supported by this browser.';
+      return;
+    }
+    demoLocationStatus.textContent = 'Detecting your location…';
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude.toFixed(4);
+        const lng = pos.coords.longitude.toFixed(4);
+        demoLocation.value = `${lat}, ${lng}`;
+        demoLocationStatus.textContent = 'Location detected — this helps us scope your pilot region.';
+        if (demoMap) setDemoMarker(pos.coords.latitude, pos.coords.longitude, 10);
+      },
+      (err) => {
+        demoLocationStatus.textContent = `Unable to detect location: ${err.message}`;
+      }
+    );
+  });
+
+  demoForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    // In production this would POST to your backend/CRM.
+    demoFormView.classList.add('hidden');
+    demoSuccessView.classList.remove('hidden');
+  });
+
+  // ============ PLATFORM DEMO: HTML5 API SHOWCASE ============
+
+  // 1. Geolocation API — detect and display the inspector's current coordinates
+  const apiGeoBtn = document.getElementById('apiGeoBtn');
+  const apiGeoStatus = document.getElementById('apiGeoStatus');
+  apiGeoBtn.addEventListener('click', () => {
+    if (!navigator.geolocation) {
+      apiGeoStatus.textContent = 'Geolocation is not supported by this browser.';
+      return;
+    }
+    apiGeoStatus.textContent = 'Detecting your location…';
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude.toFixed(4);
+        const lng = pos.coords.longitude.toFixed(4);
+        apiGeoStatus.textContent = `LAT ${lat} · LNG ${lng}`;
+      },
+      (err) => {
+        apiGeoStatus.textContent = `Unable to detect location: ${err.message}`;
+      }
+    );
+  });
+
+  // 2. Local Storage API — save, retrieve, and display inspector notes
+  const apiNoteForm = document.getElementById('apiNoteForm');
+  const apiNoteInput = document.getElementById('apiNoteInput');
+  const apiNoteList = document.getElementById('apiNoteList');
+  const NOTES_KEY = 'trackguard_inspector_notes';
+
+  function loadNotes() {
+    const notes = JSON.parse(localStorage.getItem(NOTES_KEY) || '[]');
+    apiNoteList.innerHTML = '';
+    notes.forEach((note, i) => {
+      const li = document.createElement('li');
+      li.className = 'flex items-center justify-between gap-2 bg-[var(--panel-alt)] border border-[var(--panel-line)] rounded-md px-2.5 py-1.5';
+      li.innerHTML = `<span class="truncate">${note}</span>`;
+      const delBtn = document.createElement('button');
+      delBtn.textContent = '×';
+      delBtn.setAttribute('aria-label', 'Delete note');
+      delBtn.className = 'shrink-0 text-[var(--steel)] hover:text-[var(--signal)]';
+      delBtn.addEventListener('click', () => {
+        notes.splice(i, 1);
+        localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
+        loadNotes();
+      });
+      li.appendChild(delBtn);
+      apiNoteList.appendChild(li);
+    });
+  }
+
+  apiNoteForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const val = apiNoteInput.value.trim();
+    if (!val) return;
+    const notes = JSON.parse(localStorage.getItem(NOTES_KEY) || '[]');
+    notes.push(val);
+    localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
+    apiNoteInput.value = '';
+    loadNotes();
+  });
+
+  loadNotes();
+
+  // 3. Canvas API — animated track diagram with a pulsing defect marker
+  const apiCanvas = document.getElementById('apiCanvas');
+  const apiCtx = apiCanvas.getContext('2d');
+  let pulse = 0;
+
+  function drawTrack() {
+    const w = apiCanvas.width, h = apiCanvas.height;
+    apiCtx.clearRect(0, 0, w, h);
+
+    // rail lines
+    apiCtx.strokeStyle = '#4C8FC0';
+    apiCtx.lineWidth = 3;
+    apiCtx.beginPath();
+    apiCtx.moveTo(0, h * 0.4); apiCtx.lineTo(w, h * 0.4);
+    apiCtx.moveTo(0, h * 0.6); apiCtx.lineTo(w, h * 0.6);
+    apiCtx.stroke();
+
+    // sleepers
+    apiCtx.strokeStyle = '#232D3A';
+    apiCtx.lineWidth = 4;
+    for (let x = 10; x < w; x += 22) {
+      apiCtx.beginPath();
+      apiCtx.moveTo(x, h * 0.32);
+      apiCtx.lineTo(x, h * 0.68);
+      apiCtx.stroke();
+    }
+
+    // pulsing defect marker
+    pulse = (pulse + 0.06) % (Math.PI * 2);
+    const r = 6 + Math.sin(pulse) * 3;
+    apiCtx.beginPath();
+    apiCtx.arc(w * 0.68, h * 0.5, r, 0, Math.PI * 2);
+    apiCtx.fillStyle = 'rgba(230,64,42,0.5)';
+    apiCtx.fill();
+    apiCtx.beginPath();
+    apiCtx.arc(w * 0.68, h * 0.5, 5, 0, Math.PI * 2);
+    apiCtx.fillStyle = '#E6402A';
+    apiCtx.fill();
+
+    requestAnimationFrame(drawTrack);
+  }
+  drawTrack();
+
+  // 4. Audio API — self-generated alert tone (no licensing concerns)
+  const apiAudioBtn = document.getElementById('apiAudioBtn');
+  apiAudioBtn.addEventListener('click', () => {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.4);
+  });
+
+  // 5. Video API — native <video controls> element above already wires playback via the browser's built-in controls.
+
+  // 6. File API + Local Storage — upload track condition photos/videos (multiple), persist as data URLs
+  const apiPhotoInput = document.getElementById('apiPhotoInput');
+  const apiPhotoGrid = document.getElementById('apiPhotoGrid');
+  const apiPhotoStatus = document.getElementById('apiPhotoStatus');
+  const PHOTOS_KEY = 'trackguard_condition_photos';
+
+  function getStoredMedia() {
+    const stored = JSON.parse(localStorage.getItem(PHOTOS_KEY) || '[]');
+    // Normalize legacy entries (plain data-URL strings) to {dataUrl, type} objects
+    return stored.map((item) =>
+      typeof item === 'string' ? { dataUrl: item, type: 'image' } : item
+    );
+  }
+
+  // sessionMedia is what's actually rendered — it may briefly include items
+  // that didn't fit in Local Storage, so uploads never silently disappear.
+  let sessionMedia = getStoredMedia();
+
+  function renderMedia() {
+    apiPhotoGrid.innerHTML = '';
+    sessionMedia.forEach((item, i) => {
+      const wrap = document.createElement('div');
+      if (item.type === 'video') {
+        wrap.className = 'relative col-span-3 sm:col-span-3 rounded-lg overflow-hidden border border-[var(--panel-line)] bg-black';
+        wrap.innerHTML = `<video src="${item.dataUrl}" class="w-full aspect-video" controls playsinline preload="metadata"></video>`;
+      } else {
+        wrap.className = 'relative aspect-square rounded-lg overflow-hidden border border-[var(--panel-line)]';
+        wrap.innerHTML = `<img src="${item.dataUrl}" class="w-full h-full object-cover" alt="Track condition photo">`;
+      }
+      const delBtn = document.createElement('button');
+      delBtn.textContent = '×';
+      delBtn.setAttribute('aria-label', 'Delete file');
+      delBtn.className = 'absolute top-1 right-1 w-5 h-5 flex items-center justify-center rounded-full bg-black/70 text-white text-xs leading-none';
+      delBtn.addEventListener('click', () => {
+        sessionMedia.splice(i, 1);
+        persist(sessionMedia, { silent: true });
+        renderMedia();
+      });
+      wrap.appendChild(delBtn);
+      apiPhotoGrid.appendChild(wrap);
+    });
+  }
+
+  // Try to persist; on quota overflow, keep everything visible in this
+  // session but tell the user which items won't survive a reload.
+  function persist(media, opts = {}) {
+    try {
+      localStorage.setItem(PHOTOS_KEY, JSON.stringify(media));
+      if (!opts.silent) apiPhotoStatus.textContent = '';
+      return true;
+    } catch (err) {
+      if (!opts.silent) {
+        apiPhotoStatus.textContent =
+          'Shown below, but too large to save permanently in this browser\'s storage — it will disappear on reload. Try a shorter clip or a compressed photo.';
+      }
+      return false;
+    }
+  }
+
+  // Keep it simple for reload-loading: fall back to whatever's in storage.
+  function loadPhotos() {
+    sessionMedia = getStoredMedia();
+    renderMedia();
+  }
+
+  apiPhotoInput.addEventListener('change', () => {
+    const files = Array.from(apiPhotoInput.files || []);
+    if (!files.length) return;
+
+    apiPhotoStatus.textContent = 'Reading file(s)…';
+    let remaining = files.length;
+    const newEntries = [];
+
+    files.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        newEntries.push({
+          dataUrl: reader.result,
+          type: file.type.startsWith('video') ? 'video' : 'image',
+          name: file.name,
+        });
+        remaining -= 1;
+        if (remaining === 0) {
+          sessionMedia = sessionMedia.concat(newEntries);
+          persist(sessionMedia);
+          apiPhotoInput.value = '';
+          renderMedia();
+        }
+      };
+      reader.onerror = () => {
+        remaining -= 1;
+        apiPhotoStatus.textContent = `Could not read "${file.name}".`;
+        if (remaining === 0) {
+          apiPhotoInput.value = '';
+          renderMedia();
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+  });
+
+  loadPhotos();
+</script>
+</body>
+</html>
