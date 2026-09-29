@@ -91,12 +91,13 @@ section[class*="bg-[var(--panel-alt)]"]{backdrop-filter:blur(6px)}
 
     <div class="flex items-center gap-3">
       <!-- Sign In trigger (signed-out state) -->
-      <button data-open-signin id="signInBtn" class="hidden sm:inline-block text-sm font-medium text-[var(--steel)] nav-link">
+      <button data-open-signin id="signInBtn" class="text-sm font-medium text-[var(--steel)] nav-link">
         Sign In
       </button>
       <!-- Signed-in state (hidden by default) -->
-      <div id="userChip" class="hidden sm:flex items-center gap-2">
+      <div id="userChip" class="items-center gap-2" style="display:none">
         <div class="w-8 h-8 rounded-full bg-[#5CD6FF]/20 flex items-center justify-center font-head text-xs font-semibold text-[var(--steelblue)]" id="userInitial"></div>
+        <span id="userName" class="text-sm text-[var(--board)] hidden lg:inline"></span>
         <button id="signOutBtn" class="text-xs text-[var(--steel)] hover:text-[var(--board)] transition-colors">Sign out</button>
       </div>
       <button data-open-demo class="hidden sm:inline-block btn-primary text-white text-sm font-semibold px-5 py-2.5 rounded-lg">
@@ -120,10 +121,16 @@ section[class*="bg-[var(--panel-alt)]"]{backdrop-filter:blur(6px)}
       <li><a href="#faq" class="nav-link">FAQ</a></li>
       <li><a href="#platform-demo" class="nav-link">Live Demo</a></li>
       <li><a href="#event-lab" class="nav-link">Event Lab</a></li>
-      <li>
+      <li id="mobileSignInItem">
         <button data-open-signin class="w-full text-center border border-[var(--panel-line)] text-sm font-medium px-4 py-2.5 rounded-lg block">
           Sign In
         </button>
+      </li>
+      <li id="mobileUserItem" style="display:none">
+        <div class="flex items-center justify-between gap-3 border border-[var(--panel-line)] rounded-lg px-4 py-2.5">
+          <span>Signed in as <strong id="mobileUserName" class="text-[var(--board)]"></strong></span>
+          <button id="mobileSignOutBtn" class="text-xs underline">Sign out</button>
+        </div>
       </li>
       <li><button data-open-demo class="btn-primary text-white text-center font-semibold px-5 py-2.5 rounded-lg block w-full">Book a Pilot Demo</button></li>
     </ul>
@@ -891,9 +898,11 @@ section[class*="bg-[var(--panel-alt)]"]{backdrop-filter:blur(6px)}
         <div class="flex-1 h-px bg-[var(--panel-line)]"></div>
       </div>
 
-      <form id="emailSignInForm" class="space-y-3">
-        <input type="email" required placeholder="Work email" class="w-full bg-[var(--panel-alt)] border border-[var(--panel-line)] rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-[var(--steelblue)]">
-        <input type="password" required placeholder="Password" class="w-full bg-[var(--panel-alt)] border border-[var(--panel-line)] rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-[var(--steelblue)]">
+      <form id="emailSignInForm" class="space-y-3" novalidate>
+        <input id="signInEmail" type="email" autocomplete="email" placeholder="Work email" class="w-full bg-[var(--panel-alt)] border border-[var(--panel-line)] rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-[var(--steelblue)]">
+        <p id="emailError" class="text-xs text-red-400 hidden mt-1" role="alert"></p>
+        <input id="signInPassword" type="password" autocomplete="current-password" placeholder="Password" class="w-full bg-[var(--panel-alt)] border border-[var(--panel-line)] rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-[var(--steelblue)]">
+        <p id="passwordError" class="text-xs text-red-400 hidden mt-1" role="alert"></p>
         <button type="submit" class="btn-primary w-full text-white font-head font-semibold px-6 py-2.5 rounded-lg">
           Sign in with Email
         </button>
@@ -974,64 +983,114 @@ section[class*="bg-[var(--panel-alt)]"]{backdrop-filter:blur(6px)}
 <script>
   // Sign-in modal + provider selection (UI/UX ready — swap in real
   // Google Identity Services / Microsoft MSAL / backend auth per provider)
-  const signInBtn = document.getElementById('signInBtn');
-  const userChip = document.getElementById('userChip');
   const userInitial = document.getElementById('userInitial');
+  const userName = document.getElementById('userName');
+  const mobileUserName = document.getElementById('mobileUserName');
   const signOutBtn = document.getElementById('signOutBtn');
-
+  const mobileSignOutBtn = document.getElementById('mobileSignOutBtn');
   const signInModal = document.getElementById('signInModal');
   const signInOverlay = document.getElementById('signInOverlay');
   const closeSignInModal = document.getElementById('closeSignInModal');
   const emailSignInForm = document.getElementById('emailSignInForm');
+  const emailInput = document.getElementById('signInEmail');
+  const passInput = document.getElementById('signInPassword');
+  const emailError = document.getElementById('emailError');
+  const passwordError = document.getElementById('passwordError');
+  const AUTH_KEY = 'trackguard_user';
+
+  // Visibility of sign-in / user elements is driven by body.signed-in (see CSS)
+  const authStyle = document.createElement('style');
+  authStyle.textContent = `
+    body.signed-in #signInBtn, body.signed-in #mobileSignInItem { display: none !important; }
+    body.signed-in #userChip { display: flex !important; }
+    body.signed-in #mobileUserItem { display: block !important; }
+    @media (max-width: 639px) { #userChip, #signInBtn { display: none !important; } }`;
+  document.head.appendChild(authStyle);
 
   function openSignInModal() {
     signInModal.classList.remove('hidden');
     signInModal.classList.add('flex');
     document.body.style.overflow = 'hidden';
+    emailInput.focus();
   }
   function closeSignIn() {
     signInModal.classList.add('hidden');
     signInModal.classList.remove('flex');
     document.body.style.overflow = '';
   }
+  function showError(el, input, msg) {
+    el.textContent = msg; el.classList.remove('hidden');
+    input.style.borderColor = '#f87171';
+  }
+  function clearErrors() {
+    [emailError, passwordError].forEach((el) => { el.textContent = ''; el.classList.add('hidden'); });
+    emailInput.style.borderColor = ''; passInput.style.borderColor = '';
+  }
 
   document.querySelectorAll('[data-open-signin]').forEach((btn) => {
     btn.addEventListener('click', (e) => {
       e.preventDefault();
+      if (mobileMenu) mobileMenu.classList.add('hidden');
       openSignInModal();
     });
   });
   closeSignInModal.addEventListener('click', closeSignIn);
   signInOverlay.addEventListener('click', closeSignIn);
 
-  function setSignedIn(name) {
+  function nameFromEmail(email) {
+    const local = email.split('@')[0].replace(/[._-]+/g, ' ').trim();
+    return local.replace(/\b\w/g, (c) => c.toUpperCase()) || 'User';
+  }
+  function applySignedIn(name) {
     userInitial.textContent = name.charAt(0).toUpperCase();
-    signInBtn.classList.add('hidden');
-    userChip.classList.remove('hidden');
-    userChip.classList.add('sm:flex');
+    userName.textContent = name;
+    mobileUserName.textContent = name;
+    document.body.classList.add('signed-in');
+  }
+  function setSignedIn(name, method) {
+    applySignedIn(name);
+    try { localStorage.setItem(AUTH_KEY, JSON.stringify({ name, method })); } catch (e) {}
+    emailSignInForm.reset(); clearErrors();
     closeSignIn();
+    if (mobileMenu) mobileMenu.classList.add('hidden');
   }
   function setSignedOut() {
-    signInBtn.classList.remove('hidden');
-    userChip.classList.add('hidden');
-    userChip.classList.remove('sm:flex');
+    document.body.classList.remove('signed-in');
+    try { localStorage.removeItem(AUTH_KEY); } catch (e) {}
+    userInitial.textContent = ''; userName.textContent = ''; mobileUserName.textContent = '';
+    if (mobileMenu) mobileMenu.classList.add('hidden');
   }
 
-  // Google / Microsoft provider buttons
+  // Restore session on load
+  try {
+    const saved = JSON.parse(localStorage.getItem(AUTH_KEY) || 'null');
+    if (saved && saved.name) applySignedIn(saved.name);
+  } catch (e) {}
+
+  // Google / Microsoft provider buttons (placeholder for real OAuth)
   document.querySelectorAll('.provider-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       const provider = btn.dataset.provider;
-      // Placeholder for real OAuth redirect/popup per provider.
-      setSignedIn('Sanju');
+      setSignedIn(provider + ' User', provider);
     });
   });
 
-  // Email/password sign-in
+  // Email/password sign-in with validation
   emailSignInForm.addEventListener('submit', (e) => {
     e.preventDefault();
-    setSignedIn('Sanju');
+    clearErrors();
+    const email = emailInput.value.trim();
+    const pass = passInput.value;
+    let ok = true;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) { showError(emailError, emailInput, 'Enter a valid email address.'); ok = false; }
+    if (pass.length < 6) { showError(passwordError, passInput, 'Password must be at least 6 characters.'); ok = false; }
+    if (!ok) return;
+    setSignedIn(nameFromEmail(email), 'email');
   });
-  if (signOutBtn) signOutBtn.addEventListener('click', setSignedOut);
+  [emailInput, passInput].forEach((i) => i.addEventListener('input', clearErrors));
+
+  signOutBtn.addEventListener('click', setSignedOut);
+  mobileSignOutBtn.addEventListener('click', setSignedOut);
 
   // Mobile menu toggle
   const mobileMenuBtn = document.getElementById('mobileMenuBtn');
